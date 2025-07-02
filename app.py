@@ -436,6 +436,7 @@
 
 
 
+
 import streamlit as st
 import pickle
 import pandas as pd
@@ -444,42 +445,59 @@ import numpy as np
 class RecommenderWrapper:
     def __init__(self, model_dict):
         self.model_dict = model_dict
-        self.best_model_name = model_dict.get('best_model_name', 'svd_model')
         
-        # Get the best model based on best_model_name
-        if self.best_model_name == 'svd_model':
-            self.model = model_dict.get('svd_model')
+        # Initialize all attributes to None first
+        self.model = None
+        self.reconstructed = None
+        self.train_matrix = None
+        self.user_averages = {}
+        self.restaurant_averages = {}
+        self.global_avg = 0
+        self.restaurant_features = None
+        self.best_model_name = 'unknown'
+        
+        # Now safely extract values
+        try:
+            self.best_model_name = model_dict.get('best_model_name', 'svd_model')
+            
+            # Get the best model based on best_model_name
+            if self.best_model_name == 'svd_model' and 'svd_model' in model_dict:
+                self.model = model_dict['svd_model']
+            elif self.best_model_name == 'ridge_model' and 'ridge_model' in model_dict:
+                self.model = model_dict['ridge_model']
+            elif self.best_model_name == 'rf_model' and 'rf_model' in model_dict:
+                self.model = model_dict['rf_model']
+            else:
+                # Default to any available model
+                for model_key in ['svd_model', 'ridge_model', 'rf_model']:
+                    if model_key in model_dict:
+                        self.model = model_dict[model_key]
+                        self.best_model_name = model_key
+                        break
+            
+            # Store other useful components safely
             self.reconstructed = model_dict.get('svd_reconstructed')
-        elif self.best_model_name == 'ridge_model':
-            self.model = model_dict.get('ridge_model')
+            self.train_matrix = model_dict.get('train_matrix')
+            self.user_averages = model_dict.get('user_averages', {})
+            self.restaurant_averages = model_dict.get('restaurant_averages', {})
+            self.global_avg = model_dict.get('global_avg', 0)
+            self.restaurant_features = model_dict.get('restaurant_features')
+            
+        except Exception as e:
+            st.error(f"Error initializing RecommenderWrapper: {e}")
+            # Set safe defaults
+            self.model = None
             self.reconstructed = None
-        elif self.best_model_name == 'rf_model':
-            self.model = model_dict.get('rf_model')
-            self.reconstructed = None
-        else:
-            # Default to SVD if available
-            self.model = model_dict.get('svd_model', model_dict.get('ridge_model'))
-            self.reconstructed = model_dict.get('svd_reconstructed')
-        
-        # Store other useful components
-        self.train_matrix = model_dict.get('train_matrix')
-        self.user_averages = model_dict.get('user_averages', {})
-        self.restaurant_averages = model_dict.get('restaurant_averages', {})
-        self.global_avg = model_dict.get('global_avg', 0)
-        self.restaurant_features = model_dict.get('restaurant_features')
-        
-        # Debug: Print available keys and model info
-        st.write("Debug: Available model components:")
-        st.write(f"Best model: {self.best_model_name}")
-        st.write(f"Has reconstructed matrix: {self.reconstructed is not None}")
-        st.write(f"Has train matrix: {self.train_matrix is not None}")
-        st.write(f"Number of users: {len(self.user_averages) if self.user_averages else 0}")
-        st.write(f"Number of restaurants: {len(self.restaurant_averages) if self.restaurant_averages else 0}")
         
     def recommend(self, user_id, top_k=5):
         """Recommend restaurants for a user"""
         try:
             user_id_str = str(user_id)
+            
+            # Check if we have the required attributes
+            if not hasattr(self, 'reconstructed'):
+                st.error("RecommenderWrapper not properly initialized")
+                return [("Initialization error", 0.0)] * top_k
             
             # Method 1: Try using reconstructed SVD matrix
             if (self.reconstructed is not None and 
