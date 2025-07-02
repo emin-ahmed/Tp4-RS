@@ -426,8 +426,6 @@ def main():
             key="restaurant_name_input"
         )
         
-        # Optional: Add some example buttons
-        st.markdown("**Try these examples:**")
         col1, col2, col3, col4 = st.columns(4)
         
 
