@@ -859,60 +859,352 @@
     
 #     st.write("### Les 5 restaurants les plus similaires à", selected)
 #     st.dataframe(top5)
+# import streamlit as st
+# import pickle
+# import pandas as pd
+# import numpy as np
+# from sklearn.metrics.pairwise import euclidean_distances
+
+# # 1) Chargement du modèle
+# @st.cache_resource
+# def load_model(path="mauritania_restaurant_recommender.pkl"):
+#     with open(path, "rb") as f:
+#         return pickle.load(f)
+
+# model_pkg = load_model()
+
+# # 2) Extraction des embeddings restaurants via le SVD
+# #    svd_model.components_ a pour shape (n_components, n_restaurants)
+# #    On transpose pour obtenir (n_restaurants, n_components)
+# svd: "TruncatedSVD" = model_pkg['svd_model']
+# item_embeddings = svd.components_.T
+
+# # 3) Noms des restaurants
+# restaurants_df = model_pkg['restaurant_features'].copy()
+# if 'name' not in restaurants_df.columns:
+#     restaurants_df = restaurants_df.rename(columns={restaurants_df.columns[0]: 'name'})
+# restaurant_names = restaurants_df['name'].tolist()
+
+# # 4) Interface Streamlit
+# st.set_page_config(page_title="🍽️ Reco Restaurants (SVD)", layout="wide")
+# st.title("🍽️ Recommander des restaurants similaires (SVD)")
+
+# input_name = st.text_input("Entrez le nom du restaurant de référence :")
+
+# if st.button("Trouver 5 similaires"):
+#     if not input_name:
+#         st.error("Veuillez saisir un nom de restaurant.")
+#     elif input_name not in restaurant_names:
+#         st.error("Ce restaurant n'existe pas dans notre base. Vérifiez l'orthographe !")
+#     else:
+#         idx = restaurant_names.index(input_name)
+#         # 5) Calcul des distances euclidiennes dans l'espace latent
+#         dists = euclidean_distances(
+#             item_embeddings[idx].reshape(1, -1),
+#             item_embeddings
+#         ).flatten()
+#         # 6) On met dans un DataFrame pour trier
+#         df_sim = pd.DataFrame({
+#             'Restaurant': restaurant_names,
+#             'Distance': dists
+#         })
+#         top5 = (
+#             df_sim
+#             .sort_values('Distance', ascending=True)   # plus la distance est petite, plus c'est proche
+#             .iloc[1:6]  # on enlève l'élément lui-même
+#             .reset_index(drop=True)
+#         )
+#         st.write(f"### 5 restaurants les plus proches de « {input_name} »")
+#         st.dataframe(top5)
+
+
+
+
+
+
+
+
+
+
 import streamlit as st
 import pickle
 import pandas as pd
 import numpy as np
-from sklearn.metrics.pairwise import euclidean_distances
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.preprocessing import StandardScaler
+import warnings
+warnings.filterwarnings('ignore')
 
-# 1) Chargement du modèle
-@st.cache_resource
-def load_model(path="mauritania_restaurant_recommender.pkl"):
-    with open(path, "rb") as f:
-        return pickle.load(f)
+# Page configuration
+st.set_page_config(
+    page_title="Mauritania Restaurant Recommender",
+    page_icon="🍽️",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-model_pkg = load_model()
+# Custom CSS for better styling
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 2.5rem;
+        color: #1f77b4;
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    .restaurant-card {
+        background-color: #f8f9fa;
+        padding: 1rem;
+        border-radius: 10px;
+        border-left: 4px solid #1f77b4;
+        margin: 1rem 0;
+    }
+    .metric-card {
+        background-color: #e3f2fd;
+        padding: 1rem;
+        border-radius: 8px;
+        text-align: center;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-# 2) Extraction des embeddings restaurants via le SVD
-#    svd_model.components_ a pour shape (n_components, n_restaurants)
-#    On transpose pour obtenir (n_restaurants, n_components)
-svd: "TruncatedSVD" = model_pkg['svd_model']
-item_embeddings = svd.components_.T
+@st.cache_data
+def load_model():
+    """Load the trained recommender model"""
+    try:
+        with open('mauritania_restaurant_recommender.pkl', 'rb') as f:
+            model_package = pickle.load(f)
+        return model_package
+    except FileNotFoundError:
+        st.error("❌ Model file 'mauritania_restaurant_recommender.pkl' not found. Please make sure the file is in the same directory as this app.")
+        return None
+    except Exception as e:
+        st.error(f"❌ Error loading model: {str(e)}")
+        return None
 
-# 3) Noms des restaurants
-restaurants_df = model_pkg['restaurant_features'].copy()
-if 'name' not in restaurants_df.columns:
-    restaurants_df = restaurants_df.rename(columns={restaurants_df.columns[0]: 'name'})
-restaurant_names = restaurants_df['name'].tolist()
+def get_restaurant_recommendations(model_package, restaurant_id=None, restaurant_name=None, user_preferences=None):
+    """Get restaurant recommendations using the hybrid model"""
+    
+    if model_package is None:
+        return []
+    
+    try:
+        # Extract components from model package
+        restaurant_features = model_package['restaurant_features']
+        ridge_model = model_package['ridge_model']
+        scaler = model_package['scaler']
+        rf_model = model_package['rf_model']
+        restaurant_averages = model_package['restaurant_averages']
+        
+        # If restaurant_name is provided, find the restaurant_id
+        if restaurant_name and restaurant_id is None:
+            # Assuming restaurant_features has a 'name' column
+            matching_restaurants = restaurant_features[
+                restaurant_features['name'].str.contains(restaurant_name, case=False, na=False)
+            ]
+            if not matching_restaurants.empty:
+                restaurant_id = matching_restaurants.index[0]
+            else:
+                st.warning(f"Restaurant '{restaurant_name}' not found.")
+                return []
+        
+        # Method 1: Content-based similarity using restaurant features
+        if restaurant_id is not None:
+            # Get target restaurant features
+            if restaurant_id in restaurant_features.index:
+                target_features = restaurant_features.loc[[restaurant_id]]
+                
+                # Calculate similarity with all restaurants
+                feature_cols = [col for col in restaurant_features.columns if col not in ['name', 'address']]
+                
+                # Use only numerical features for similarity calculation
+                numerical_features = restaurant_features[feature_cols].select_dtypes(include=[np.number])
+                target_numerical = target_features[feature_cols].select_dtypes(include=[np.number])
+                
+                # Calculate cosine similarity
+                similarities = cosine_similarity(target_numerical, numerical_features)[0]
+                
+                # Get top 6 similar restaurants (excluding the target restaurant itself)
+                similar_indices = np.argsort(similarities)[::-1][1:6]  # Skip first (itself)
+                
+                recommendations = []
+                for idx in similar_indices:
+                    rest_id = numerical_features.index[idx]
+                    similarity_score = similarities[idx]
+                    
+                    # Get restaurant info
+                    rest_info = restaurant_features.loc[rest_id]
+                    avg_rating = restaurant_averages.get(rest_id, 0) if restaurant_averages is not None else 0
+                    
+                    recommendations.append({
+                        'restaurant_id': rest_id,
+                        'name': rest_info.get('name', f'Restaurant {rest_id}'),
+                        'similarity_score': similarity_score,
+                        'avg_rating': avg_rating,
+                        'features': rest_info.to_dict()
+                    })
+                
+                return recommendations
+        
+        # Method 2: General recommendations based on high ratings and popularity
+        else:
+            # Get top-rated restaurants
+            if restaurant_averages is not None:
+                top_restaurants = sorted(restaurant_averages.items(), key=lambda x: x[1], reverse=True)[:5]
+                
+                recommendations = []
+                for rest_id, avg_rating in top_restaurants:
+                    if rest_id in restaurant_features.index:
+                        rest_info = restaurant_features.loc[rest_id]
+                        recommendations.append({
+                            'restaurant_id': rest_id,
+                            'name': rest_info.get('name', f'Restaurant {rest_id}'),
+                            'avg_rating': avg_rating,
+                            'features': rest_info.to_dict()
+                        })
+                
+                return recommendations
+            
+    except Exception as e:
+        st.error(f"Error generating recommendations: {str(e)}")
+        return []
+    
+    return []
 
-# 4) Interface Streamlit
-st.set_page_config(page_title="🍽️ Reco Restaurants (SVD)", layout="wide")
-st.title("🍽️ Recommander des restaurants similaires (SVD)")
+def display_recommendations(recommendations):
+    """Display restaurant recommendations in a nice format"""
+    if not recommendations:
+        st.warning("No recommendations found.")
+        return
+    
+    st.markdown("### 🎯 Top 5 Restaurant Recommendations")
+    
+    for i, rec in enumerate(recommendations, 1):
+        with st.container():
+            col1, col2, col3 = st.columns([1, 3, 1])
+            
+            with col1:
+                st.markdown(f"**#{i}**")
+                if 'similarity_score' in rec:
+                    st.metric("Similarity", f"{rec['similarity_score']:.2%}")
+                if 'avg_rating' in rec:
+                    st.metric("Avg Rating", f"{rec['avg_rating']:.1f}")
+            
+            with col2:
+                st.markdown(f"### {rec['name']}")
+                st.markdown(f"**Restaurant ID:** {rec['restaurant_id']}")
+                
+                # Display additional features if available
+                if 'features' in rec:
+                    features = rec['features']
+                    if 'address' in features and pd.notna(features['address']):
+                        st.markdown(f"📍 **Address:** {features['address']}")
+                    
+                    # Display other relevant features
+                    for key, value in features.items():
+                        if key not in ['name', 'address'] and pd.notna(value) and str(value) != '0':
+                            st.markdown(f"**{key.title()}:** {value}")
+            
+            with col3:
+                st.markdown("🍽️")
+            
+            st.markdown("---")
 
-input_name = st.text_input("Entrez le nom du restaurant de référence :")
+def main():
+    # Header
+    st.markdown('<h1 class="main-header">🍽️ Mauritania Restaurant Recommender</h1>', unsafe_allow_html=True)
+    
+    # Load model
+    with st.spinner("Loading recommendation model..."):
+        model_package = load_model()
+    
+    if model_package is None:
+        st.stop()
+    
+    # Display model info
+    with st.sidebar:
+        st.markdown("## 📊 Model Information")
+        st.markdown(f"**Model Type:** {model_package.get('model_type', 'Unknown')}")
+        st.markdown(f"**Training Date:** {model_package.get('training_date', 'Unknown')}")
+        st.markdown(f"**Total Restaurants:** {model_package.get('total_restaurants', 'Unknown')}")
+        st.markdown(f"**Total Users:** {model_package.get('total_users', 'Unknown')}")
+        st.markdown(f"**Total Reviews:** {model_package.get('total_reviews', 'Unknown')}")
+        
+        if 'final_rmse' in model_package:
+            st.markdown(f"**Model RMSE:** {model_package['final_rmse']:.3f}")
+        if 'final_mae' in model_package:
+            st.markdown(f"**Model MAE:** {model_package['final_mae']:.3f}")
+    
+    # Main interface
+    st.markdown("## 🔍 Get Restaurant Recommendations")
+    
+    # Create tabs for different recommendation methods
+    tab1, tab2 = st.tabs(["🎯 Similar Restaurants", "⭐ Top Rated"])
+    
+    with tab1:
+        st.markdown("### Find restaurants similar to one you like")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Restaurant ID input
+            restaurant_id = st.text_input(
+                "Enter Restaurant ID:",
+                placeholder="e.g., REST123",
+                help="Enter the ID of a restaurant you like to find similar ones"
+            )
+        
+        with col2:
+            # Restaurant name input
+            restaurant_name = st.text_input(
+                "Or enter Restaurant Name:",
+                placeholder="e.g., La Taverne",
+                help="Enter part of the restaurant name to search"
+            )
+        
+        if st.button("🔍 Find Similar Restaurants", type="primary"):
+            if restaurant_id or restaurant_name:
+                with st.spinner("Finding similar restaurants..."):
+                    recommendations = get_restaurant_recommendations(
+                        model_package, 
+                        restaurant_id=restaurant_id if restaurant_id else None,
+                        restaurant_name=restaurant_name if restaurant_name else None
+                    )
+                    display_recommendations(recommendations)
+            else:
+                st.warning("Please enter either a Restaurant ID or Restaurant Name.")
+    
+    with tab2:
+        st.markdown("### Discover top-rated restaurants")
+        
+        if st.button("⭐ Show Top Rated Restaurants", type="primary"):
+            with st.spinner("Loading top-rated restaurants..."):
+                recommendations = get_restaurant_recommendations(model_package)
+                display_recommendations(recommendations)
+    
+    # Additional information
+    st.markdown("---")
+    st.markdown("## ℹ️ How it works")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("""
+        **Similar Restaurants:**
+        - Uses content-based filtering
+        - Analyzes restaurant features and characteristics
+        - Finds restaurants with similar attributes
+        - Calculates cosine similarity scores
+        """)
+    
+    with col2:
+        st.markdown("""
+        **Top Rated:**
+        - Shows restaurants with highest average ratings
+        - Based on historical review data
+        - Considers overall popularity and quality
+        - Perfect for discovering new places
+        """)
 
-if st.button("Trouver 5 similaires"):
-    if not input_name:
-        st.error("Veuillez saisir un nom de restaurant.")
-    elif input_name not in restaurant_names:
-        st.error("Ce restaurant n'existe pas dans notre base. Vérifiez l'orthographe !")
-    else:
-        idx = restaurant_names.index(input_name)
-        # 5) Calcul des distances euclidiennes dans l'espace latent
-        dists = euclidean_distances(
-            item_embeddings[idx].reshape(1, -1),
-            item_embeddings
-        ).flatten()
-        # 6) On met dans un DataFrame pour trier
-        df_sim = pd.DataFrame({
-            'Restaurant': restaurant_names,
-            'Distance': dists
-        })
-        top5 = (
-            df_sim
-            .sort_values('Distance', ascending=True)   # plus la distance est petite, plus c'est proche
-            .iloc[1:6]  # on enlève l'élément lui-même
-            .reset_index(drop=True)
-        )
-        st.write(f"### 5 restaurants les plus proches de « {input_name} »")
-        st.dataframe(top5)
+if __name__ == "__main__":
+    main()
