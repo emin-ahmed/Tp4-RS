@@ -800,6 +800,68 @@
 
 
 
+# import streamlit as st
+# import pickle
+# import pandas as pd
+# import numpy as np
+# from sklearn.metrics.pairwise import cosine_similarity
+
+# @st.cache_resource
+# def load_model(path="mauritania_restaurant_recommender.pkl"):
+#     with open(path, "rb") as f:
+#         return pickle.load(f)
+
+# model_pkg = load_model()
+
+# # On récupère la matrice reconstituée users×restaurants
+# svd_reconstructed = model_pkg['svd_reconstructed']  # numpy array
+
+# # DataFrame des restaurants
+# # On suppose que model_pkg['restaurant_features'] est un DataFrame
+# # avec une colonne "name" pour le nom des restaurants
+# restaurants_df = model_pkg['restaurant_features'].copy()
+# if 'name' not in restaurants_df.columns:
+#     # Si votre colonne s'appelle différemment, modifiez ici :
+#     restaurants_df = restaurants_df.rename(columns={restaurants_df.columns[0]: 'name'})
+
+# restaurant_names = restaurants_df['name'].tolist()
+
+# st.set_page_config(page_title="🍽️ Recommandations Restaurants", layout="wide")
+# st.title("🍽️ Recommander des restaurants similaires")
+
+# selected = st.selectbox("Choisissez un restaurant :", restaurant_names)
+
+# if st.button("Trouver 5 similaires"):
+#     # Index du restaurant sélectionné
+#     idx = restaurant_names.index(selected)
+    
+#     # Colonnes = restaurants, donc on transpose pour similarity sur colonnes
+#     # svd_reconstructed : shape (n_users, n_restaurants)
+#     # On extrait vecteur colonne i
+#     item_vec = svd_reconstructed[:, idx].reshape(1, -1)
+    
+#     # Calcul des similarités cosinus entre cette colonne et toutes les autres
+#     # On transpose svd_reconstructed pour obtenir (n_restaurants, n_users)
+#     sims = cosine_similarity(item_vec, svd_reconstructed.T).flatten()
+    
+#     # On crée un DataFrame pour trier
+#     sim_df = pd.DataFrame({
+#         'name': restaurant_names,
+#         'similarity': sims
+#     })
+#     # On retire lui-même, on trie et on prend top 6 (incluant lui, qu’on enlèvera)
+#     top5 = (
+#         sim_df
+#         .sort_values('similarity', ascending=False)
+#         .iloc[1:6]  # 1:6 pour sauter l'élément identique
+#         .reset_index(drop=True)
+#     )
+    
+#     st.write("### Les 5 restaurants les plus similaires à", selected)
+#     st.dataframe(top5)
+
+
+
 import streamlit as st
 import pickle
 import pandas as pd
@@ -813,49 +875,40 @@ def load_model(path="mauritania_restaurant_recommender.pkl"):
 
 model_pkg = load_model()
 
-# On récupère la matrice reconstituée users×restaurants
-svd_reconstructed = model_pkg['svd_reconstructed']  # numpy array
-
-# DataFrame des restaurants
-# On suppose que model_pkg['restaurant_features'] est un DataFrame
-# avec une colonne "name" pour le nom des restaurants
+# Récupération de la matrice users × restaurants et du DataFrame des restaurants
+svd_reconstructed = model_pkg['svd_reconstructed']
 restaurants_df = model_pkg['restaurant_features'].copy()
-if 'name' not in restaurants_df.columns:
-    # Si votre colonne s'appelle différemment, modifiez ici :
-    restaurants_df = restaurants_df.rename(columns={restaurants_df.columns[0]: 'name'})
 
+# On normalise le nom de la colonne de nom
+if 'name' not in restaurants_df.columns:
+    restaurants_df = restaurants_df.rename(columns={restaurants_df.columns[0]: 'name'})
 restaurant_names = restaurants_df['name'].tolist()
 
 st.set_page_config(page_title="🍽️ Recommandations Restaurants", layout="wide")
 st.title("🍽️ Recommander des restaurants similaires")
 
-selected = st.selectbox("Choisissez un restaurant :", restaurant_names)
+# 1) On demande à l'utilisateur de saisir un nom
+input_name = st.text_input("Entrez le nom du restaurant de référence :")
 
+# 2) Bouton pour lancer la recherche
 if st.button("Trouver 5 similaires"):
-    # Index du restaurant sélectionné
-    idx = restaurant_names.index(selected)
-    
-    # Colonnes = restaurants, donc on transpose pour similarity sur colonnes
-    # svd_reconstructed : shape (n_users, n_restaurants)
-    # On extrait vecteur colonne i
-    item_vec = svd_reconstructed[:, idx].reshape(1, -1)
-    
-    # Calcul des similarités cosinus entre cette colonne et toutes les autres
-    # On transpose svd_reconstructed pour obtenir (n_restaurants, n_users)
-    sims = cosine_similarity(item_vec, svd_reconstructed.T).flatten()
-    
-    # On crée un DataFrame pour trier
-    sim_df = pd.DataFrame({
-        'name': restaurant_names,
-        'similarity': sims
-    })
-    # On retire lui-même, on trie et on prend top 6 (incluant lui, qu’on enlèvera)
-    top5 = (
-        sim_df
-        .sort_values('similarity', ascending=False)
-        .iloc[1:6]  # 1:6 pour sauter l'élément identique
-        .reset_index(drop=True)
-    )
-    
-    st.write("### Les 5 restaurants les plus similaires à", selected)
-    st.dataframe(top5)
+    if not input_name:
+        st.error("Veuillez d'abord saisir un nom de restaurant.")
+    elif input_name not in restaurant_names:
+        st.error("Ce restaurant n'existe pas dans notre base. Vérifiez l'orthographe !")
+    else:
+        idx = restaurant_names.index(input_name)
+        # On récupère le vecteur colonne du restaurant
+        item_vec = svd_reconstructed[:, idx].reshape(1, -1)
+        # Similarité cosinus avec toutes les colonnes
+        sims = cosine_similarity(item_vec, svd_reconstructed.T).flatten()
+        sim_df = pd.DataFrame({
+            'name': restaurant_names,
+            'similarity': sims
+        })
+        top5 = (sim_df
+                .sort_values('similarity', ascending=False)
+                .iloc[1:6]
+                .reset_index(drop=True))
+        st.write(f"### Les 5 restaurants les plus similaires à « {input_name} »")
+        st.dataframe(top5)
