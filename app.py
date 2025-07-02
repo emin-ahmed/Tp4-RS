@@ -3,7 +3,7 @@ import pickle
 import pandas as pd
 
 @st.cache_resource
-def load_model(path="best_model.pkl"):
+def load_model(path="mauritania_restaurant_recommender.pkl"):
     with open(path, "rb") as f:
         return pickle.load(f)
 
