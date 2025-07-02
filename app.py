@@ -1,3 +1,19 @@
+# import streamlit as st
+# import pickle
+# import pandas as pd
+
+# @st.cache_resource
+# def load_model(path="mauritania_restaurant_recommender.pkl"):
+#     with open(path, "rb") as f:
+#         return pickle.load(f)
+
+# model = load_model()
+
+# st.set_page_config(page_title="🍽️ Restaurant Recommender", layout="wide")
+# st.title("🍽️ Restaurant Recommender")
+
+
+
 import streamlit as st
 import pickle
 import pandas as pd
@@ -7,11 +23,19 @@ def load_model(path="mauritania_restaurant_recommender.pkl"):
     with open(path, "rb") as f:
         return pickle.load(f)
 
-model = load_model()
+raw = load_model()
+
+# If you pickled a dict of components, choose the one that has recommend()/recommend_by_item()
+if isinstance(raw, dict):
+    # e.g. if you stored under 'hybrid' or 'ridge', adjust the key to your case:
+    model = raw.get('hybrid') or raw.get('ridge') or list(raw.values())[0]
+else:
+    model = raw
 
 st.set_page_config(page_title="🍽️ Restaurant Recommender", layout="wide")
 st.title("🍽️ Restaurant Recommender")
 
+# … rest of your code unchanged …
 mode = st.sidebar.radio(
     "How would you like to get recommendations?",
     ("By User ID", "By Restaurant Name")
