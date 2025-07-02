@@ -2627,22 +2627,22 @@ def main():
         st.markdown("**Try these examples:**")
         col1, col2, col3, col4 = st.columns(4)
         
-        example_clicked = None
-        with col1:
-            if st.button("🍕 Pizza Corner", key="example_pizza"):
-                example_clicked = "Pizza Corner"
-        with col2:
-            if st.button("🍤 Ocean Breeze", key="example_ocean"):
-                example_clicked = "Ocean Breeze"
-        with col3:
-            if st.button("☕ Café Paris", key="example_cafe"):
-                example_clicked = "Café Paris"
-        with col4:
-            if st.button("🥘 Spice Garden", key="example_spice"):
-                example_clicked = "Spice Garden"
+        # example_clicked = None
+        # with col1:
+        #     if st.button("🍕 Pizza Corner", key="example_pizza"):
+        #         example_clicked = "Pizza Corner"
+        # with col2:
+        #     if st.button("🍤 Ocean Breeze", key="example_ocean"):
+        #         example_clicked = "Ocean Breeze"
+        # with col3:
+        #     if st.button("☕ Café Paris", key="example_cafe"):
+        #         example_clicked = "Café Paris"
+        # with col4:
+        #     if st.button("🥘 Spice Garden", key="example_spice"):
+        #         example_clicked = "Spice Garden"
         
         # Use example if clicked, otherwise use text input
-        final_restaurant_name = example_clicked if example_clicked else restaurant_name
+        final_restaurant_name = restaurant_name
         
         if st.button("🔍 Find Similar Restaurants", type="primary", key="main_search_button"):
             if final_restaurant_name and final_restaurant_name.strip():
